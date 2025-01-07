@@ -4,22 +4,22 @@ platform = platform or "unknown-unknown"
 local OS, ARCH = platform:match "^([^-]+)-([^-]+)$"
 
 local json = {
-    name = "lua-debug",
-    version = "2.0.11",
-    publisher = "actboy168",
-    displayName = "Lua Debug",
-    description = "VSCode debugger extension for Lua",
+    name = "lua-inmation-debugger",
+    version = "1.0.0",
+    publisher = "sspivey",
+    displayName = "Lua Inmation Debugger",
+    description = "VSCode debugger extension that hooks into Inmation.",
     icon = "images/logo.png",
     private = true,
     author = {
         name = "actboy168",
     },
     bugs = {
-        url = "https://github.com/actboy168/lua-debug/issues",
+        url = "https://github.com/saspivey98/lua-inmation-debugger/issues",
     },
     repository = {
         type = "git",
-        url = "https://github.com/actboy168/lua-debug",
+        url = "https://github.com/saspivey98/lua-inmation-debugger",
     },
     keywords = {
         "lua",
@@ -151,14 +151,9 @@ local attributes = {}
 
 attributes.common = {
     luaVersion = {
-        default = "lua54",
+        default = "lua53",
         enum = {
-            "lua51",
-            "lua52",
-            "lua53",
-            "lua54",
-            "lua-latest",
-            "luajit",
+            "lua53"
         },
         markdownDescription = "%lua.debug.launch.luaVersion.description%",
         type = "string",

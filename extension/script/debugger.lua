@@ -107,19 +107,8 @@ local function detectLuaDebugPath(cfg)
     local rt = "/runtime/"..PLATFORM
     if cfg.luaVersion then
         rt = rt.."/"..cfg.luaVersion
-    elseif _VERSION == "Lua 5.4" then
-        rt = rt.."/lua54"
     elseif _VERSION == "Lua 5.3" then
         rt = rt.."/lua53"
-    elseif _VERSION == "Lua 5.2" then
-        rt = rt.."/lua52"
-    elseif _VERSION == "Lua 5.1" then
-        if (tostring(assert):match('builtin') ~= nil) then
-            rt = rt.."/luajit"
-            jit.off()
-        else
-            rt = rt.."/lua51"
-        end
     else
         error(_VERSION.." is not supported.")
     end
@@ -129,6 +118,8 @@ local function detectLuaDebugPath(cfg)
 end
 
 local function initDebugger(dbg, cfg)
+    --TODO add _G here
+    --_G.syslib = require('syslib')
     if type(cfg) == "string" then
         cfg = { address = cfg }
     end
