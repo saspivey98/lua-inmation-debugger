@@ -1,14 +1,13 @@
 # lua-debug
 
-[![Build Status](https://github.com/actboy168/lua-debug/workflows/build/badge.svg)](https://github.com/actboy168/lua-debug/actions?workflow=build)
-
 ## Requirements
 
-* Lua 5.1 - 5.4 or luajit (thanks [@fesily](https://github.com/fesily))
+* Lua 5.3
 * Platform: Windows, macOS, Linux, Android, NetBSD, FreeBSD
 
 ## Feature
 
+* Adds `syslib` to global packages
 * Breakpoints
 * Function breakpoints
 * Conditional breakpoints
@@ -22,8 +21,9 @@
 
 ## Build
 
-1. Install [luamake](https://github.com/actboy168/luamake)
-``` bash
+Install [luamake](https://github.com/actboy168/luamake) (use `x64 native tools command prompt for VS 2022`)
+
+```bash
 git clone https://github.com/actboy168/luamake
 pushd luamake
 git submodule init
@@ -33,30 +33,29 @@ git submodule update
 popd
 ```
 
-2. Clone repo.
-``` bash
-git clone https://github.com/actboy168/lua-debug
+Clone repo.
+
+```bash
+git clone https://github.com/saspivey98/Lua-on-Windows
 cd lua-debug
 git submodule init
 git submodule update
 ```
 
-3. Download deps.
+Download depedencies.
+
 ``` bash
 luamake lua compile/download_deps.lua
 ```
 
-4. Build
-```
+Build
+
+```bash
 luamake -mode release
 ```
 
 ## Install to VSCode
 
-1. Install extension `actboy168.lua-debug` and `actboy168.extension-path`
-2. Open [repo](https://github.com/actboy168/lua-debug) in VSCode
-3. Run task：Copy Publish
-
-## Todo
-
-* iOS example.
+1. Package extension by running `vsce package` in the `/publish/` directory. (You will need to install vsce by `npm i -g vsce`)
+2. Install extension by clicking extensions, and then click the ellipse `...` in the top corner. Select `Install from VSIX`.
+3. For release, `Run task：Copy Publish`
