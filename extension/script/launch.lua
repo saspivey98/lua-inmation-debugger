@@ -10,6 +10,11 @@ local function dofile(filename)
     return assert(load(str, "=(debugger.lua)"))(filename)
 end
 local dbg = dofile(path.."/script/debugger.lua")
+
+local ok, result = pcall(require, "syslib")
+if ok then _G.syslib = result
+else print("Warning: Syslib was not found.") end
+
 dbg:set_wait("DBG", function(str)
     local params = {}
     str:gsub('[^/]+', function (w) params[#params+1] = w end)

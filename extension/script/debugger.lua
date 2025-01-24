@@ -118,8 +118,6 @@ local function detectLuaDebugPath(cfg)
 end
 
 local function initDebugger(dbg, cfg)
-    --TODO add _G here
-    --_G.syslib = require('syslib')
     if type(cfg) == "string" then
         cfg = { address = cfg }
     end

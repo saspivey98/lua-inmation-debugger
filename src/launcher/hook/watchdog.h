@@ -31,8 +31,6 @@ namespace luadebug::autoattach {
         std::vector<watch_point> watch_points;
         Gum::RefPtr<Gum::Interceptor> interceptor;
         common_listener listener_common;
-        // luajit_global_listener listener_luajit_global;
-        // luajit_jit_listener listener_luajit_jit;
         ret_listener listener_ret;
         std::set<lua::state> lua_state_hooked;
         uint8_t luahook_index;

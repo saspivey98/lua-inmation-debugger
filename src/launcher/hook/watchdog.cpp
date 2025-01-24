@@ -152,12 +152,6 @@ namespace luadebug::autoattach {
             case watch_point::type::common:
                 ok = interceptor->attach(point.address, &listener_common, this);
                 break;
-            // case watch_point::type::luajit_global:
-            //     ok = interceptor->attach(point.address, &listener_luajit_global, this);
-            //     break;
-            // case watch_point::type::luajit_jit:
-            //     ok = interceptor->attach(point.address, &listener_luajit_jit, this);
-            //     break;
             case watch_point::type::ret:
                 ok = interceptor->attach(point.address, &listener_ret, this);
                 break;
@@ -173,8 +167,6 @@ namespace luadebug::autoattach {
 
     void watchdog::unhook() {
         interceptor->detach(&listener_common);
-        // interceptor->detach(&listener_luajit_global);
-        // interceptor->detach(&listener_luajit_jit);
         interceptor->detach(&listener_ret);
     }
 
