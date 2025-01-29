@@ -67,7 +67,6 @@ async function install() {
 
 async function activate(context) {
     exports.extensionDirectory = getExtensionDirectory(context)
-
     await install().catch(error => {
         console.log(error.stack)
     });

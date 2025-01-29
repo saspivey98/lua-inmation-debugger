@@ -44,7 +44,7 @@ exports.initial = {
             {
                 type: 'lua',
                 request: 'launch',
-                name: 'Debug',
+                name: 'Novaspect Inmation Debugger',
                 program: program
             }
         ];
@@ -59,7 +59,7 @@ exports.dynamic = {
             configurations.push({
                 type: 'lua',
                 request: 'launch',
-                name: 'Debug Current File',
+                name: 'Novaspect Inmation Debugger - Current File',
                 program: program
             });
         }
@@ -141,6 +141,9 @@ function resolveLaunchConfig(config, platname, settings) {
         }
     }
     else {
+        const extensionPath = vscode.extensions.getExtension('sspivey.lua-inmation-debugger').extensionUri.fsPath;
+        const runtimePath = path.join(extensionPath, 'runtime', 'win32-x64', 'lua53');
+        let ext = platname == "windows"? "dll" : "so"
         if (typeof config.program != 'string') {
             throw new Error('Missing `program` to debug');
         }
@@ -161,6 +164,7 @@ function resolveLaunchConfig(config, platname, settings) {
         }
         if (config.path) {
             config.path = config.path.concat(settings.path)
+            config.path = config.path.concat(runtimePath + '/?.lua')
         }
         // cpath
         if (typeof config.cpath == 'string') {
@@ -169,7 +173,6 @@ function resolveLaunchConfig(config, platname, settings) {
         else if (typeof config.cpath == 'object') {
         }
         else {
-            let ext = platname == "windows"? "dll" : "so"
             config.cpath = ['${cwd}/?.' + ext]
             if (typeof config.luaexe == 'string') {
                 config.cpath.push(path.dirname(config.luaexe) + '/?.' + ext)
@@ -177,6 +180,7 @@ function resolveLaunchConfig(config, platname, settings) {
         }
         if (config.cpath) {
             config.cpath = config.cpath.concat(settings.cpath)
+            config.cpath = config.cpath.concat(runtimePath + '/?.' + ext)
         }
         //address
         if (typeof config.address != 'string' && settings.address !== "") {
