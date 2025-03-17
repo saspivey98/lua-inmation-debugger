@@ -1,9 +1,29 @@
 -- esi-pibridge
+local J = require('rapidjson')
+local socket = require('socket')
 
-local J = require "dkjson"
-local V = require "esi-variables"
-local socket = require "socket"
-local STR = require "esi-string"
+--Tries to convert the given string to a number or a boolean. If not possible, returns the string originally passed.
+local function LUATYPE(arg)
+	--ignore numbers,booleans, nils,
+	if type(arg) == "string" then
+		--if number convert
+		if tonumber(arg) ~= nil then
+			return tonumber(arg)
+		--if boolean convert
+		elseif arg:lower() == "true" then
+			return true
+		elseif arg:lower() == "false" then
+			return false
+		--else return string
+		else
+			return arg
+		end
+	elseif type(arg) == "boolean" or type(arg) == "number" then
+		return arg
+	else
+		return "Invalid type passed: "..type(arg)
+	end
+end
 
 local lib = {
 	-- external libraries
@@ -12,7 +32,6 @@ local lib = {
 	tcp = nil,
 	tcpexception = nil,
 	tcpconfig = {},
-	debugoption = true,
 	buffersize = 2048,
 	alias = {
 		["PIPoint"] = "P", -- old "PIPoint"
@@ -52,11 +71,11 @@ function lib.INFO(_)
 		},
 		dependencies = {
 			{
-				modulename = "dkjson",
+				modulename = "rapidjson",
 				version = {
-					major = 2,
-					minor = 5,
-					revision = 0
+					major = 0,
+					minor = 7,
+					revision = 1
 				}
 			},
 			{
@@ -66,38 +85,11 @@ function lib.INFO(_)
 					minor = 0,
 					revision = 0
 				}
-			},
-			{
-				modulename = "esi-variables",
-				version = {
-					major = 0,
-					minor = 1,
-					revision = 2
-				}
 			}
 		}
 	}
 end
 
--- todo: implement _error
--- function lib:_error(...)
---     if self.debug then
---         error(...)
---     else
---         -- other error handling in production
---     end
--- end
-
--- todo: implement _assert
--- function lib:_assert(...)
---     if self.debug then
---         assert(...)
---     else
---         -- other error handling in production
---     end
--- end
-
--- @md
 function lib:SETALIAS(args)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("SETALIAS should be called using colon ':' notation", 2)
@@ -106,9 +98,6 @@ function lib:SETALIAS(args)
 	if type(args) == "table" then
 		for k, v in pairs(args) do
 			self.alias[k] = v
-		end
-		if self.debugoption then
-			V:SETVARIABLE("cfg/Alias", self.alias)
 		end
 	end
 end
@@ -122,18 +111,13 @@ function lib:SETCONNECTION(args)
 		error(("Parameter #1 has the wrong type. Expected: %q; actual: %q"):format("table", type(args)), 2)
 	end
 
-	self.starttime = self.starttime or inmation.now()
+	self.starttime = self.starttime or syslib.now()
 	if type(args) == "table" then
 		self.alias = args.alias or self.alias
-		self.debugoption = args.debugoption or false
 		self.tcpconfig.host = args.host or "127.0.0.1"
 		self.tcpconfig.port = args.port or 5959
 		self.tcpconfig.timeout = args.timeout or 3
 		self.buffersize = args.buffersize or 2048
-		if self.debugoption then
-			V:SETVARIABLE("cfg/Alias", self.alias)
-			V:SETVARIABLE("cfg/TCP Configuration", self.tcpconfig)
-		end
 	end
 end
 -- initial function to connect to the PI bridge and get the status from the bridge
@@ -151,10 +135,8 @@ function lib:_ensureconnect()
 			["farg"] = {}
 		}
 		self:_send(call)
-		local response, exception = self:_tcpreceive()
-		if self.debugoption then
-			V:SETVARIABLE("cfg/GETSTATUS", response)
-		end
+		local _, exception = self:_tcpreceive()
+
 		if type(exception) ~= "nil" then
 			return false, exception
 		end
@@ -166,7 +148,7 @@ function lib:CONNECTTOPI(args)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("CONNECTTOPI should be called using colon ':' notation", 2)
 	end
-	local rt = inmation.now()
+	local rt = syslib.now()
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "ConnectToPI",
@@ -180,7 +162,7 @@ function lib:CONNECTTOPI(args)
 			AFSDKVersion = result["AFSDKVersion"]
 		}
 		result = result or {["Connected"] = false}
-		return result["Connected"], exception, {["runtime"] = inmation.now() - rt},info
+		return result["Connected"], exception, {["runtime"] = syslib.now() - rt},info
 	end
 	return nil, tcpex
 end
@@ -244,11 +226,7 @@ function lib:CLOSECONNECTION()
 		result["connectionClosed"] = true
 	end
 	if self.starttime then
-		result["endtime"] = inmation.now() - self.starttime
-	end
-
-	if self.debugoption then
-		V:SETVARIABLE("PerformanceCounter/runtime", result["endtime"])
+		result["endtime"] = syslib.now() - self.starttime
 	end
 
 	return result
@@ -401,20 +379,6 @@ function lib:RECORDEDVALUES(arg)
 		elseif type(arg["StartTime"]) == "number" and type(arg["EndTime"]) == "number" then
 			for _, tagpath in ipairs(arg["tags"]) do
 				local tagname = self:_gettagname(arg.disluaclean or false,tagpath,"\\")
-				-- local tagparts = inmation.split(tagpath, "\\")
-				-- local tagname = tagparts[#tagparts]
-				-- if arg["count"] ~= nil then
-				-- 	if type(arg["count"]) == "table" then
-				-- 		table.insert( call["farg"]["ValuesToRead"],
-				-- 		{["P"] = tagname,
-				-- 		["C"] = arg["count"][index] or nil,
-				-- 		["T"] = {["t1"] = arg["StartTime"],
-				-- 		--["t2"] = arg["EndTime"]
-				-- 		}})
-				-- 	else
-				-- 		return nil, {["msg"] = "'count' must be a table! Current type: " .. type(arg["count"])}
-				-- 	end
-				-- else
 				table.insert(
 					call["farg"]["ValuesToRead"],
 					{
@@ -439,7 +403,6 @@ function lib:RECORDEDVALUES(arg)
 								["C"] = arg["count"][i] or nil,
 								["T"] = {["t1"] = arg["tagstimes"][i]["StartTime"]},
 								["boundarytype"] = arg["boundarytype"][i] or 0,
-								--["t2"] = arg["tagstimes"][i]["EndTime"]
 							}
 						)
 					else
@@ -492,7 +455,7 @@ function lib:RECORDEDVALUES(arg)
 							end
 							if type(arg["tags"]) == "table" then
 								for i = responseindex, #arg["tags"] do
-									-- local tagparts = inmation.split(arg["tags"][i], "\\")
+									-- local tagparts = syslib.split(arg["tags"][i], "\\")
 									-- local tagname = tagparts[#tagparts]
 									local tagname = self:_gettagname(arg.disluaclean or false,arg["tags"][i],"\\")
 									if tagname ~= tag then
@@ -525,7 +488,8 @@ function lib:RECORDEDVALUES(arg)
 								end
 							elseif type(arg["tagstimes"]) == "table" then
 								for i = responseindex, #arg["tagstimes"] do
-									if STR:LUATYPE(arg["tagstimes"][i]["tag"]) ~= STR:LUATYPE(tag) then
+									--TODO
+									if LUATYPE(arg["tagstimes"][i]["tag"]) ~= LUATYPE(tag) then
 										table.insert(
 											response,
 											{
@@ -687,7 +651,7 @@ function lib:INTERPOLATEDVALUES(arg)
 							end
 							if type(arg["tags"]) == "table" then
 								for i = responseindex, #arg["tags"] do
-									-- local tagparts = inmation.split(arg["tags"][i], "\\")
+									-- local tagparts = syslib.split(arg["tags"][i], "\\")
 									-- local tagname = tagparts[#tagparts]
 									local tagname = self:_gettagname(arg.disluaclean or false,arg["tags"][i],"\\")
 									if tagname ~= tag then
@@ -720,7 +684,7 @@ function lib:INTERPOLATEDVALUES(arg)
 								end
 							elseif type(arg["tagstimes"]) == "table" then
 								for i = responseindex, #arg["tagstimes"] do
-									if STR:LUATYPE(arg["tagstimes"][i]["tag"]) ~= STR:LUATYPE(tag) then
+									if LUATYPE(arg["tagstimes"][i]["tag"]) ~= LUATYPE(tag) then
 										table.insert(
 											response,
 											{
@@ -783,7 +747,7 @@ function lib:UPDATEVALUES(arg)
 	if type(arg.inmvalues) == "table" and type(arg.tags) == "table" then
 		local valuesToWrite = {}
 		for index, pitagname in ipairs(arg.tags) do
-			-- local tagparts = inmation.split(pitagname, "\\")
+			-- local tagparts = syslib.split(pitagname, "\\")
 			-- local tagname = tagparts[#tagparts]
 			local tagname = self:_gettagname(arg.disluaclean or false,pitagname,"\\")
 			local tagdata = {[self.alias.PIPoint] = tagname, [self.alias.Values] = {}}
@@ -869,7 +833,7 @@ function lib:FINDPIBATCHES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDPIBATCHES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()                      -- todo: runtime
+	--local rt = syslib.now()                      -- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "FindPIBatches",
@@ -910,7 +874,7 @@ function lib:_tcpsend(call)
 end
 -- Sends the call data to pibridge with over tcp connection.
 function lib:_send(call)
-	local rt = inmation.now()
+	local rt = syslib.now()
 	local callstring = ""
 	if type(call) == "table" then
 		callstring = J.encode(call, {indent = false})
@@ -921,39 +885,25 @@ function lib:_send(call)
 	end
 	callstring = callstring .. "xEOFx"
 	self.tcp:send(callstring)
-	if self.debugoption then
-		V:SETVARIABLE("tcp/Send String", callstring, 0, inmation.now(), false)
-		V:SETVARIABLE("tcp/Send Count", #callstring)
-		V:SETVARIABLE("tcp/Send Runtime", inmation.now() - rt)
-	end
 end
 -- Waits for the data that the tibridge sends over tcp
 -- until it recives a xEOFx that marks the end of the string thats beeing sent
 function lib:_tcpreceive()
-	local rt = inmation.now()
+	local rt = syslib.now()
 	local timeout = self.tcpconfig.timeout * 1000
 	local count = 1
 	local receivestring = ""
-	local timestart = inmation.now()
+	local timestart = syslib.now()
 	local run = true
 	local exception = nil
 	local performanceCounter = nil
 	while run do
 		local s, status, partial = self.tcp:receive(self.buffersize or 2048)
-		if self.debugoption then
-			V:SETVARIABLE("tcp/receivestring type", type(s))
-		end
 		if type(s) == "string" then
 			receivestring = receivestring .. s
 		end
 		if type(partial) == "string" then
-			if self.debugoption then
-				V:SETVARIABLE("tcp/Partial", partial)
-			end
 			if partial:sub(-5) == "xEOFx" then
-				if self.debugoption then
-					V:SETVARIABLE("tcp/Closed", "partialxEOFx")
-				end
 				if #partial > 5 then
 					receivestring = receivestring .. partial:sub(#partial - 5)
 				end
@@ -961,35 +911,22 @@ function lib:_tcpreceive()
 			end
 		end
 		if status then
-			if self.debugoption then
-				V:SETVARIABLE("tcp/Closed", status)
-				V:SETVARIABLE("tcp/Status", status)
-			end
 			self.tcp:close()
 			self.tcp = nil
 			exception = {["msg"] = "Error during TCP connection", ["tcp"] = status}
 			break
 		end
 		if status == "closed" then
-			if self.debugoption then
-				V:SETVARIABLE("tcp/Closed", "closed")
-			end
 			self.tcp:close()
 			self.tcp = nil
 			exception = {["msg"] = "Error during TCP connection", ["tcp"] = "closed"}
 			break
 		end
 		if receivestring:sub(-5) == "xEOFx" then
-			if self.debugoption then
-				V:SETVARIABLE("tcp/Closed", "xEOFx")
-			end
 			break
 		end
-		local currentrun = inmation.now() - timestart
+		local currentrun = syslib.now() - timestart
 		if currentrun > timeout then
-			if self.debugoption then
-				V:SETVARIABLE("tcp/Closed", "timeout")
-			end
 			self.tcp:close()
 			self.tcp = nil
 			exception = {["msg"] = "Error during TCP connection", ["tcp"] = "timeout"}
@@ -1017,21 +954,6 @@ function lib:_tcpreceive()
 			}
 	end
 
-	if self.debugoption then
-		V:SETVARIABLE("tcp/Receive Count", count)
-		V:SETVARIABLE("tcp/Receive String", receivestring, 0, inmation.now(), false)
-		V:SETVARIABLE("tcp/Receive Runtime", inmation.now() - rt)
-		if tableresponse ~= nil then
-			if tableresponse["TimeProcessPerformance"] ~= nil then
-				performanceCounter = tableresponse["TimeProcessPerformance"]
-			end
-		end
-		if performanceCounter ~= nil then
-			for k, v in pairs(performanceCounter) do
-				V:SETVARIABLE("PerformanceCounter/" .. k, v)
-			end
-		end
-	end
 	return tableresponse, exception
 end
 --@md
@@ -1039,7 +961,7 @@ function lib:FINDELEMENTATTRIBUTESBYPATH(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDELEMENTATTRIBUTESBYPATH should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "FindElementAttributesByPath",
@@ -1066,7 +988,7 @@ function lib:FINDELEMENTSCHILDS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDELEMENTSCHILDS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "FindElementsChilds",
@@ -1079,9 +1001,6 @@ function lib:FINDELEMENTSCHILDS(arg)
 	local ok, tcpex = self:_tcpsend(call)
 	if ok then
 		local result, exception = self:_tcpreceive()
-		if self.debugoption then
-			V:SETVARIABLE("debug/result", result)
-		end
 		if type(result) == "table" then
 			if type(result["farg"]) == "table" then
 				return result["farg"], exception
@@ -1096,7 +1015,7 @@ function lib:FINDEVENTFRAMES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDEVENTFRAMES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local guid = nil
 	if type((arg["EF"]["guid"])) == "table" then
 		guid = arg["EF"]["guid"]
@@ -1141,7 +1060,7 @@ function lib:FINDELEMENTATTRIBUTES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDELEMENTATTRIBUTES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "FindElementAttributes",
@@ -1182,7 +1101,7 @@ function lib:CREATEPIPOINTS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("CREATEPIPOINTS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "CreatePIPoints",
@@ -1203,7 +1122,7 @@ function lib:CREATEAFHIERARCHY(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("CREATEAFHIERARCHY should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "CreateAFHierarchy",
@@ -1230,7 +1149,7 @@ function lib:CREATEAFATTRIBUTES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("CREATEAFATTRIBUTES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "CreateAFAttributes",
@@ -1259,7 +1178,7 @@ function lib:GETPITAGSCONFIG(arg)
 		error("GETPITAGSCONFIG should be called using colon ':' notation", 2)
 	end
 	-- version 0.6.0
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "GetPITagsConfig",
@@ -1273,7 +1192,7 @@ function lib:GETPITAGSCONFIG(arg)
 		return nil, {["msg"] = "Warning: Function argument 'tagnames' is nil!"}
 	end
 	for _, tagpath in pairs(arg["tagnames"]) do
-		-- local tagparts = inmation.split(tagpath, "\\")
+		-- local tagparts = syslib.split(tagpath, "\\")
 		-- local tagname = tagparts[#tagparts]
 		local tagname = self:_gettagname(arg.disluaclean or false,tagpath,"\\")
 		table.insert(call["farg"]["P"], tagname)
@@ -1281,9 +1200,6 @@ function lib:GETPITAGSCONFIG(arg)
 	local ok, tcpex = self:_tcpsend(call)
 	if ok then
 		local result, exception = self:_tcpreceive()
-		if self.debugoption then
-			V:SETVARIABLE("debug/result", result)
-		end
 		if type(result) == "table" then
 			if type(result["farg"]) == "table" then
 				return result["farg"], exception
@@ -1959,7 +1875,7 @@ function lib:DELETEAFELEMENTS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("DELETEAFELEMENTS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "DeleteAFElements",
@@ -1988,7 +1904,7 @@ function lib:DELETEAFATTRIBUTES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("DELETEAFATTRIBUTES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "DeleteAFAttributes",
@@ -2017,7 +1933,7 @@ function lib:UPDATEPITAGSCONFIG(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("UPDATEPITAGSCONFIG should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "UpdatePITagsConfig",
@@ -2038,7 +1954,7 @@ function lib:AFELEMENTSEXISTS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("AFELEMENTSEXISTS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "AFElementsExists",
@@ -2069,7 +1985,7 @@ function lib:GETAFELEMENTSCONFIG(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("GETAFELEMENTSCONFIG should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "GetAFElementsConfig",
@@ -2106,7 +2022,7 @@ function lib:PITAGSEXISTS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("PITAGSEXISTS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()		-- todo: runtime
+	--local rt = syslib.now()		-- todo: runtime
 	local call = {
 		["sys"] = "OSI",
 		["func"] = "PITagsExists",
@@ -2138,7 +2054,7 @@ function lib:FINDPIBATCHHEADERS(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDPIBATCHHEADERS should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()                      -- todo: runtime
+	--local rt = syslib.now()                      -- todo: runtime
 	local farg = {
 		["SearchStartTime"] = arg["SearchStartTime"],
 		["SearchEndTime"] = arg["SearchEndTime"],
@@ -2173,7 +2089,7 @@ function lib:FINDPIUNITBATCHES(arg)
 	if self == nil or type(self) ~= "table" or self.tcpconfig == nil then
 		error("FINDPIUNITBATCHES should be called using colon ':' notation", 2)
 	end
-	--local rt = inmation.now()                      -- todo: runtime
+	--local rt = syslib.now()                      -- todo: runtime
 	local farg = {
 		["SearchStartTime"] = arg["SearchStartTime"],
 		["SearchEndTime"] = arg["SearchEndTime"],
@@ -2322,7 +2238,7 @@ function lib:PIPOINTSUMMARIES(arg)
 								end
 							elseif type(arg["tagstimes"]) == "table" then
 								for i = responseindex, #arg["tagstimes"] do
-									if STR:LUATYPE(arg["tagstimes"][i]["tag"]) ~= STR:LUATYPE(tag) then
+									if LUATYPE(arg["tagstimes"][i]["tag"]) ~= LUATYPE(tag) then
 										table.insert(
 											response,
 											{
@@ -2477,7 +2393,7 @@ function lib:PIPOINTSUMMARY(arg)
 								end
 							elseif type(arg["tagstimes"]) == "table" then
 								for i = responseindex, #arg["tagstimes"] do
-									if STR:LUATYPE(arg["tagstimes"][i]["tag"]) ~= STR:LUATYPE(tag) then
+									if LUATYPE(arg["tagstimes"][i]["tag"]) ~= LUATYPE(tag) then
 										table.insert(
 											response,
 											{
@@ -3287,7 +3203,7 @@ function lib._gettagname(_,disableclean,pathtosplit,seperator)
 	if disableclean then
 		tagname =pathtosplit
 	else
-		local tagparts = inmation.split(pathtosplit, seperator)
+		local tagparts = syslib.split(pathtosplit, seperator)
 		tagname = tagparts[#tagparts]
 	end
 

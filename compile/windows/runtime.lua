@@ -1061,6 +1061,11 @@ lm:copy 'copy_syslib_config.lua' {
     outputs = 'publish/runtime/win32-x64/lua53/syslib/config.lua'
 }
 
+lm:copy 'copy_syslib_model.lua' {
+    inputs = 'src/dependencies/syslib/model.lua',
+    outputs = 'publish/runtime/win32-x64/lua53/syslib/model.lua'
+}
+
 -------------------system---------------------------------
 
 lm:copy 'copy_system_core.dll' {

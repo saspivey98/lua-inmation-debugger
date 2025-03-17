@@ -35,4 +35,4 @@ local function update_version(filename, pattern)
     io_save(filename, table.concat(t))
 end
 
-update_version(root / '.vscode' / 'launch.json', 'actboy168.lua-debug-{}')
+update_version(root / '.vscode' / 'launch.json', 'sspivey.lua-inmation-debugger-{}')

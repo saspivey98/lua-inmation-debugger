@@ -5,7 +5,7 @@ local OS, ARCH = platform:match "^([^-]+)-([^-]+)$"
 
 local json = {
     name = "lua-inmation-debugger",
-    version = "1.0.0",
+    version = "1.0.2",
     publisher = "sspivey",
     displayName = "Lua Inmation Debugger",
     description = "VSCode debugger extension that hooks into Inmation.",

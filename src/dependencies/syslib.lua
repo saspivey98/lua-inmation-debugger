@@ -1,11 +1,22 @@
 local https = require("esi-lcurl-http-client")
+local MONGO = require('mongo')
+local JSON = require('rapidjson')
 local config = require('syslib.config') --read config file
 
 local syslib = {}
 
+--model codes
+syslib.model = require('syslib.model')
+
 --checks if last char of config.url is '/'; append if DNE
 syslib.url = config.url:byte(config.url:len()) == 47
     and config.url.."api/v2/execfunction" or config.url.."/api/v2/execfunction"
+
+--self path for specific functions
+syslib.selfpath = config.selfpath or ""
+
+--a table to store function name mappings for pcall and scopedcall
+local function_names = {}
 
 syslib.headers = {
     accept = "application/json",
@@ -26,8 +37,8 @@ function syslib.INFO(_)
     return {
         version = {
             major=1,
-            minor=1,
-            revision=2
+            minor=5,
+            revision=7
         },
         contacts = {
             {
@@ -44,23 +55,26 @@ function syslib.INFO(_)
             --]]
         },
         dependencies = {
-            "syslib.lua",
-            "esi-lcurl-http-client.lua"
+            "syslib.config.lua",
+            "syslib.model.lua",
+            "esi-syslib.lua",
+            "esi-lcurl-http-client.lua",
+            "lua-mongo",
+            "rapidjson"
         }
     }
 end
 
--- function syslib:setConnection(IP, port)
---     self.url = "http://" .. IP .. ":" .. port .. "/api/v2/execfunction"
--- end
+local function headerSetter(...)
+    local args = ...
 
-local function headerSetter(arguments)
     local temp = {}
     local arg
-    for i = 1, #arguments, 1 do
+    for i = 1, #args do
         arg = "arg" .. (i // 10) .. (i % 10)
-        temp[arg] = arguments[i]
+        temp[arg] = args[i]
     end
+
     body.data.farg = temp
 end
 
@@ -69,11 +83,32 @@ end
 ------------------------------------------------------
 
 local object = {} --object.location is the object path
+--calling properties
 
---arg = path
-function syslib.getobject(p)
-    object.location = p
-    return object
+--arg = path or id
+function syslib.getobject(path)
+    --check if true
+    headerSetter({'GETOBJECT', path, "DEFAULT"})
+    if syslib:main('GETOBJECT') then
+        --default to this function when access object properties
+        object.__index = function(o, k, v)
+            --if key has value then return
+            if v then
+                return v
+            --if key is for function then call
+            elseif object[k] then
+                return object[k]
+            else
+                headerSetter({'GETOBJECT', o.location, 'PROPERTY', k})
+                return syslib:main('GETOBJECT')
+            end
+        end
+
+        local obj = {}
+        setmetatable(obj, object)
+        obj.location = path
+        return obj
+    end
 end
 
 --args = parent, class, [obj_type]
@@ -87,9 +122,13 @@ function syslib.createobject(parent, class, obj_type)
     return object
 end
 
+function syslib.new(parent, class, obj_type)
+    return syslib.createobject(parent, class, obj_type)
+end
+
 function object:commit()
     local properties = {}
-    for k,v in pairs(object) do
+    for k,v in pairs(self) do
         if type(v) ~= "function" then
             properties[k] = v
         end
@@ -98,178 +137,181 @@ function object:commit()
     return syslib:main('COMMIT')
 end
 
-function object:brefs()
-    headerSetter({'GETOBJECT', object.location, "BREFS"})
-    return syslib:main('GETOBJECT')
-end
-
 function object:cfgversion()
-    headerSetter({'GETOBJECT', object.location, "CFGVERSION"})
+    headerSetter({'GETOBJECT', self.location, "CFGVERSION"})
     return syslib:main('GETOBJECT')
 end
 
-function object:child()
-    headerSetter({'GETOBJECT', object.location, "CHILD"})
-    return syslib:main('GETOBJECT')
+--returns a specified child object
+function object:child(child)
+    return syslib.getobject(self.location.."/"..child)
 end
 
+--returns a list of children as objects
 function object:children()
-    headerSetter({'GETOBJECT', object.location, "CHILDREN"})
-    return syslib:main('GETOBJECT')
+    headerSetter({'GETOBJECT', self.location, "CHILDREN"})
+    local children = {}
+    for _,child in ipairs(syslib:main('GETOBJECT')) do
+        table.insert(children, syslib.getobject(child))
+    end
+    return children
 end
 
 function object:classversion()
-    headerSetter({'GETOBJECT', object.location, "CLASSVERSION"})
+    headerSetter({'GETOBJECT', self.location, "CLASSVERSION"})
     return syslib:main('GETOBJECT')
 end
 
 function object:comm_empty()
-    headerSetter({'GETOBJECT', object.location, "COMM_EMPTY"})
+    headerSetter({'GETOBJECT', self.location, "COMM_EMPTY"})
     return syslib:main('GETOBJECT')
 end
 
 function object:comm_error()
-    headerSetter({'GETOBJECT', object.location, "COMM_ERROR"})
+    headerSetter({'GETOBJECT', self.location, "COMM_ERROR"})
     return syslib:main('GETOBJECT')
 end
 
 function object:comm_good()
-    headerSetter({'GETOBJECT', object.location, "COMM_GOOD"})
+    headerSetter({'GETOBJECT', self.location, "COMM_GOOD"})
     return syslib:main('GETOBJECT')
 end
 
 function object:comm_neutral()
-    headerSetter({'GETOBJECT', object.location, "COMM_NEUTRAL"})
+    headerSetter({'GETOBJECT', self.location, "COMM_NEUTRAL"})
     return syslib:main('GETOBJECT')
 end
 
 function object:comm_warning()
-    headerSetter({'GETOBJECT', object.location, "COMM_WARNING"})
+    headerSetter({'GETOBJECT', self.location, "COMM_WARNING"})
     return syslib:main('GETOBJECT')
 end
 
 function object:classmismatch()
-    headerSetter({'GETOBJECT', object.location, "CLASS_MISMATCH"})
+    headerSetter({'GETOBJECT', self.location, "CLASS_MISMATCH"})
     return syslib:main('GETOBJECT')
 end
 
 function object:created()
-    headerSetter({'GETOBJECT', object.location, "CREATED"})
+    headerSetter({'GETOBJECT', self.location, "CREATED"})
     return syslib:main('GETOBJECT')
 end
 
 function object:deleted()
-    headerSetter({'GETOBJECT', object.location, "DELETED"})
+    headerSetter({'GETOBJECT', self.location, "DELETED"})
     return syslib:main('GETOBJECT')
 end
 
 function object:dynamic()
-    headerSetter({'GETOBJECT', object.location, "DYNAMIC"})
+    headerSetter({'GETOBJECT', self.location, "DYNAMIC"})
     return syslib:main('GETOBJECT')
 end
 
 function object:empty()
-    headerSetter({'GETOBJECT', object.location, "EMPTY"})
+    headerSetter({'GETOBJECT', self.location, "EMPTY"})
     return syslib:main('GETOBJECT')
 end
 
 function object:enabled()
-    headerSetter({'GETOBJECT', object.location, "ENABLED"})
+    headerSetter({'GETOBJECT', self.location, "ENABLED"})
     return syslib:main('GETOBJECT')
 end
 
 function object:error()
-    headerSetter({'GETOBJECT', object.location, "ERROR"})
+    headerSetter({'GETOBJECT', self.location, "ERROR"})
     return syslib:main('GETOBJECT')
 end
 
 function object:exploring()
-    headerSetter({'GETOBJECT', object.location, "EXPLORING"})
+    headerSetter({'GETOBJECT', self.location, "EXPLORING"})
     return syslib:main('GETOBJECT')
 end
 
 function object:good()
-    headerSetter({'GETOBJECT', object.location, "GOOD"})
+    headerSetter({'GETOBJECT', self.location, "GOOD"})
     return syslib:main('GETOBJECT')
 end
 
 function object:has_objref()
-    headerSetter({'GETOBJECT', object.location, "HAS_OBJREF"})
+    headerSetter({'GETOBJECT', self.location, "HAS_OBJREF"})
     return syslib:main('GETOBJECT')
 end
 
 function object:has_secref()
-    headerSetter({'GETOBJECT', object.location, "HAS_SECREF"})
+    headerSetter({'GETOBJECT', self.location, "HAS_SECREF"})
     return syslib:main('GETOBJECT')
 end
 
 function object:model()
-    headerSetter({'GETOBJECT', object.location, "MODEL"})
+    headerSetter({'GETOBJECT', self.location, "MODEL"})
     return syslib:main('GETOBJECT')
 end
 
 function object:modified()
-    headerSetter({'GETOBJECT', object.location, "MODIFIED"})
+    headerSetter({'GETOBJECT', self.location, "MODIFIED"})
     return syslib:main('GETOBJECT')
 end
 
 function object:neutral()
-    headerSetter({'GETOBJECT', object.location, "NEUTRAL"})
+    headerSetter({'GETOBJECT', self.location, "NEUTRAL"})
     return syslib:main('GETOBJECT')
 end
 
 function object:numid()
-    headerSetter({'GETOBJECT', object.location, "NUMID"})
+    headerSetter({'GETOBJECT', self.location, "NUMID"})
     return syslib:main('GETOBJECT')
 end
 
+--returns parent object
 function object:parent()
-    headerSetter({'GETOBJECT', object.location, "PARENT"})
-    return syslib:main('GETOBJECT')
+    local index = self.location:match'^.*()/'
+    if index > 1 then
+        return syslib.getobject(self.location:sub(0,index-1))
+    end
 end
 
 function object:path()
-    headerSetter({'GETOBJECT', object.location, "PATH"})
-    return syslib:main('GETOBJECT')
-end
-
-function object:refs()
-    headerSetter({'GETOBJECT', object.location, "REFS"})
+    headerSetter({'GETOBJECT', self.location, "PATH"})
     return syslib:main('GETOBJECT')
 end
 
 function object:registering()
-    headerSetter({'GETOBJECT', object.location, "REGISTERING"})
+    headerSetter({'GETOBJECT', self.location, "REGISTERING"})
     return syslib:main('GETOBJECT')
 end
 
 function object:sysname()
-    headerSetter({'GETOBJECT', object.location, "SYSNAME"})
+    headerSetter({'GETOBJECT', self.location, "SYSNAME"})
     return syslib:main('GETOBJECT')
 end
 
 function object:state()
-    headerSetter({'GETOBJECT', object.location, "STATE"})
+    headerSetter({'GETOBJECT', self.location, "STATE"})
     return syslib:main('GETOBJECT')
 end
 
 function object:textid()
-    headerSetter({'GETOBJECT', object.location, "TEXTID"})
+    headerSetter({'GETOBJECT', self.location, "TEXTID"})
     return syslib:main('GETOBJECT')
 end
 
 function object:type()
-    headerSetter({'GETOBJECT', object.location, "TYPE"})
+    headerSetter({'GETOBJECT', self.location, "TYPE"})
     return syslib:main('GETOBJECT')
 end
 
 function object:unconfirmed()
-    headerSetter({'GETOBJECT', object.location, "UNCONFIRMED"})
+    headerSetter({'GETOBJECT', self.location, "UNCONFIRMED"})
+    return syslib:main('GETOBJECT')
+end
+
+function object:userstate()
+    headerSetter({'GETOBJECT', self.location, "USERSTATE"})
     return syslib:main('GETOBJECT')
 end
 
 function object:warning()
-    headerSetter({'GETOBJECT', object.location, "WARNING"})
+    headerSetter({'GETOBJECT', self.location, "WARNING"})
     return syslib:main('GETOBJECT')
 end
 
@@ -314,20 +356,14 @@ function syslib.setvalue(arg1, arg2)
     return syslib.set(arg1, arg2)
 end
 
---no args
-function syslib.now()
-    headerSetter({'NOW'})
-    return syslib:main('NOW')
-end
-
 --arg = time
 function syslib.gettime(arg)
     headerSetter({'GETTIME', arg})
     return syslib:main('GETTIME')
 end
 
-function syslib.getcorepath()
-    headerSetter({'GETCOREPATH'})
+function syslib.getcorepath(path)
+    headerSetter({'GETCOREPATH'}, path or syslib.selfpath)
     return syslib:main('GETCOREPATH')
 end
 
@@ -344,11 +380,15 @@ end
 
 function syslib.findobjects(str, model, dyonly, fullpath)
     headerSetter({'FINDOBJECTS', str, model, dyonly, fullpath})
-    return syslib:main('FINDOBJECTS')
+    local objects = {}
+    for _,obj in ipairs(syslib:main('FINDOBJECTS')) do
+        table.insert(objects, syslib.getobject(obj[1]))
+    end
+    return objects
 end
 
-function syslib.gethistory(paths, starttime, endtime, intervals_no)
-    headerSetter({'GETHISTORY', paths, starttime, endtime, intervals_no})
+function syslib.gethistory(paths, starttime, endtime, intervals_no, agg_type)
+    headerSetter({'GETHISTORY', paths, starttime, endtime, intervals_no, agg_type})
     return syslib:main('GETHISTORY')
 end
 
@@ -394,19 +434,20 @@ end
 
 --args = objspec, name, [input], [duration], [size])
 function syslib.buffer(objspec, name, input, duration, size)
-    headerSetter({'BUFFER', objspec, name, input, duration, size})
+    headerSetter({'BUFFER', objspec.location or objspec, name, input, duration, size})
     return syslib:main('BUFFER')
 end
 
 --args = model_flags, [profiles]
-function syslib.checkmodelaccess(model_flags, profiles)
-    headerSetter({'MODELACCESS', model_flags, profiles})
-    return syslib:main('MODELACCESS')
+--! need more information about objspec or profiles.
+function syslib.checkmodelaccess(model_flags, objspec)
+    headerSetter({'CHECKMODELACCESS', model_flags, objspec.location})
+    return syslib:main('CHECKMODELACCESS')
 end
 
 --args = pathspec, sec_attr, [profiles]
-function syslib.checkpermission(pathspec, sec_attr, profiles)
-    headerSetter({'CHECKPERMISSION', pathspec, sec_attr, profiles})
+function syslib.checkpermission(pathspec, sec_attr, objspec)
+    headerSetter({'CHECKPERMISSION', pathspec, sec_attr, objspec.location})
     return syslib:main('CHECKPERMISSION')
 end
 
@@ -416,7 +457,7 @@ end
 
 syslib.control = {
     ["getself"] = function ()
-        headerSetter({'CONTROLGETSELF'})
+        headerSetter({'CONTROLGETSELF', syslib.selfpath})
         return syslib:main('CONTROLGETSELF')
     end,
 
@@ -443,14 +484,6 @@ syslib.control = {
 ----------------------------------------------------
 
 ----------------------------------------------------
------------- Begin syslib model library ------------
-----------------------------------------------------
-
-syslib.model = {
-
-}
-
-----------------------------------------------------
 ------------- End syslib model library -------------
 ----------------------------------------------------
 
@@ -471,6 +504,10 @@ end
 function syslib.currenttime(epoch)
     headerSetter({'CURRENTTIME', epoch})
     return syslib:main('CURRENTTIME')
+end
+
+function syslib.now(epoch)
+    return syslib.currenttime(epoch)
 end
 
 function syslib.currenttimezone()
@@ -537,14 +574,14 @@ function syslib.digestlib(lib_name)
 end
 
 --args = objspec
-function syslib.dis(objspec)
-    return syslib.disableobject(objspec)
-end
-
---args = objspec
 function syslib.disableobject(objspec)
     headerSetter({'DISABLEOBJECT', objspec})
     return syslib:main('DISABLEOBJECT')
+end
+
+--args = objspec
+function syslib.dis(objspec)
+    return syslib.disableobject(objspec)
 end
 
 --args = path
@@ -554,14 +591,14 @@ function syslib.dumpimage(path)
 end
 
 --args = objspec
-function syslib.ena(objspec)
-    return syslib.enableobject(objspec)
-end
-
---args = objspec
 function syslib.enableobject(objspec)
     headerSetter({'ENABLEOBJECT', objspec})
     return syslib:main('ENABLEOBJECT')
+end
+
+--args = objspec
+function syslib.ena(objspec)
+    return syslib.enableobject(objspec)
 end
 
 --args = bytes
@@ -584,7 +621,7 @@ end
 
 --args = datasource, item_ids, [attribute_ids], [skip_values]
 function syslib.getattributesex(datasource, item_ids, attribute_ids, skip_values)
-    headerSetter({'GETATTRIBUTESEX', datasource, item_ids, attribute_ids, skip_values})
+    headerSetter({'GETATTRIBUTESEX', syslib.selfpath, datasource, JSON.encode(item_ids), JSON.encode(attribute_ids), skip_values})
     return syslib:main('GETATTRIBUTESEX')
 end
 
@@ -601,8 +638,8 @@ function syslib.getbackreferences(objspec)
 end
 
 --args = objspec
-function syslib.getconnectorpath(objspec)
-    headerSetter({'GETCONNECTORPATH', objspec})
+function syslib.getconnectorpath(path)
+    headerSetter({'GETCONNECTORPATH', path or syslib.selfpath})
     return syslib:main('GETCONNECTORPATH')
 end
 
@@ -619,7 +656,7 @@ end
 
 --args = paths, start, finish, [options]
 function syslib.geteventhistory(paths, start, finish, options)
-    headerSetter({'GETEVENTHISTORY', paths, start, finish, options})
+    headerSetter({'GETEVENTHISTORY', paths, start, finish, options or {}})
     return syslib:main('GETEVENTHISTORY')
 end
 
@@ -637,8 +674,9 @@ end
 
 
 --args = datasource, ids, [start], [finish], [max_values], [bound_required], [modified_info]
-function syslib.gethistoryex(datasource, ids, start, finish, max_values, bound_required, modified_info)
-    headerSetter({'GETHISTORYEX', datasource, ids, start, finish, max_values, bound_required, modified_info})
+function syslib.gethistoryex(datasource, ids, ...)
+    --headerSetter({'GETHISTORYEX', syslib.selfpath, datasource, ids, start, finish, max_values, bound_required, modified_info})
+    headerSetter({'GETHISTORYEX', syslib.selfpath, datasource, ids, ...})
     return syslib:main('GETHISTORYEX')
 end
 
@@ -661,8 +699,8 @@ end
 
 -- [store], [testarchive]
 function syslib.getmongoconnection(store, testarchive)
-    headerSetter({'GETMONGOCONNECTION', store, testarchive})
-    return syslib:main('GETMONGOCONNECTION')
+    local str = syslib.getmongoconnectionstring(store, testarchive)
+    return MONGO.Client(str)
 end
 
 function syslib.getopcuaquality(opcclassicquality)
@@ -673,6 +711,10 @@ end
 function syslib.getparentpath(objspec)
     headerSetter({'GETPARENTPATH', objspec})
     return syslib:main('GETPARENTPATH')
+end
+
+function syslib.parent(objspec)
+    return syslib.getparentpath(objspec)
 end
 
 function syslib.getproductkey()
@@ -691,7 +733,7 @@ function syslib.getrawhistory(pathspec, bounds, time_start, time_end, max_limit,
 end
 
 function syslib.getreferences(objspec)
-    headerSetter({'GETREFS', objspec})
+    headerSetter({'GETREFS', objspec or syslib.selfpath})
     return syslib:main('GETREFS')
 end
 
@@ -726,13 +768,15 @@ function syslib.getselectorentries(pathspec, options)
 end
 
 function syslib.getself()
-    headerSetter({'GETSELF'})
-    return syslib:main('GETSELF')
+    if syslib.path == "" or nil then
+        return "'selfpath' key value of syslib.config.lua is not a valid object."
+    else
+        return syslib.getobject(syslib.selfpath)
+    end
 end
 
 function syslib.getselfpath()
-    headerSetter({'GETSELFPATH'})
-    return syslib:main('GETSELFPATH')
+    return syslib.selfpath
 end
 
 function syslib.getstoreid(store)
@@ -741,8 +785,14 @@ function syslib.getstoreid(store)
 end
 
 function syslib.getsystemdb()
-    headerSetter({'GETSYSTEMDB'})
-    return syslib:main('GETSYSTEMDB')
+    local sysdb = {}
+    function sysdb:query(sqlcmd)
+        headerSetter({'GETSYSTEMDB', sqlcmd})
+        return syslib:main('GETSYSTEMDB')
+    end
+    return sysdb
+    --headerSetter({'GETSYSTEMDB'})
+    --return syslib:main('GETSYSTEMDB')
 end
 
 
@@ -758,12 +808,12 @@ function syslib.gettimeparts(t)
 end
 
 function syslib.hdagetitemattributes(datasource)
-    headerSetter({'HDAGETITEM', datasource})
+    headerSetter({'HDAGETITEM', syslib.selfpath, datasource})
     return syslib:main('HDAGETITEM')
 end
 
 function syslib.hdareadattributes(datasource, item_tag, attribute_tags, start_time, end_time)
-    headerSetter({'HDAREAD', datasource, item_tag, attribute_tags, start_time, end_time})
+    headerSetter({'HDAREAD', syslib.selfpath, datasource, item_tag, attribute_tags, start_time, end_time})
     return syslib:main('HDAREAD')
 end
 
@@ -782,8 +832,23 @@ function syslib.isuncertainstatus(quality)
     return syslib:main('ISUNCERTAINSTATUS')
 end
 
+function syslib.ip21browse(datasource, tags, options)
+    headerSetter({'IP21BROWSE', syslib.selfpath, datasource, tags, options})
+    return syslib:main('IP21BROWSE')
+end
+
+function syslib.ip21getitemid(tag, field)
+    headerSetter({'IP21GETITEMID', syslib.selfpath, tag, field})
+    return syslib:main('IP21GETITEMID')
+end
+
+function syslib.ip21parseitemid(itemid)
+    headerSetter({'IP21PARSEITEMID', syslib.selfpath, itemid})
+    return syslib:main('IP21PARSEITEMID')
+end
+
 function syslib.last(objspec, name)
-    headerSetter({'LAST', objspec, name})
+    headerSetter({'LAST', objspec.location or objspec, name})
     return syslib:main('LAST')
 end
 
@@ -792,8 +857,9 @@ function syslib.listbuffer(objspec)
     return syslib:main('LISTBUFFER')
 end
 
-function syslib.listproperties(objspec, resultspec, args)
-    headerSetter({'LISTPROPS', objspec, resultspec, args})
+function syslib.listproperties(objspec, resultspec, ...)
+    --stuff vararg into table and push
+    headerSetter({'LISTPROPS', objspec, resultspec, ...})
     return syslib:main('LISTPROPS')
 end
 
@@ -803,7 +869,7 @@ function syslib.linkprocessvalue(objspec, ref)
 end
 
 function syslib.log(log_code, log_message, log_details)
-    headerSetter({'LOG', log_code, log_message, log_details})
+    headerSetter({'LOG', log_code, log_message, log_details or ""})
     return syslib:main('LOG')
 end
 
@@ -823,47 +889,54 @@ function syslib.mass(entries, batch_flags)
 end
 
 function syslib.moveobject(objspec, parent, rename)
-    headerSetter({'MOVEOBJ', objspec, parent, rename})
+    headerSetter({'MOVEOBJ', objspec.location or objspec, parent.location or parent, rename})
     return syslib:main('MOVEOBJ')
 end
 
+--!  returns userdata, but we can just return argument parameters and pass them to other msg
 function syslib.msgqueue(objspec, slot)
-    headerSetter({'MSGQUEUE', objspec, slot})
-    return syslib:main('MSGQUEUE')
+    return {objspec=objspec,slot=slot}
+    --headerSetter({'MSGQUEUE', objspec, slot})
+    --return syslib:main('MSGQUEUE')
 end
 
 function syslib.msgpush(queue, msg)
-    headerSetter({'MSGPUSH', queue, msg})
+    headerSetter({'MSGPUSH', queue.objspec, queue.slot, msg})
     return syslib:main('MSGPUSH')
 end
 
 function syslib.msgpop(queue, msgid)
-    headerSetter({'MSGPOP', queue, msgid})
+    headerSetter({'MSGPOP', queue.objspec, queue.slot, msgid})
     return syslib:main('MSGPOP')
 end
 
 function syslib.msgnext(queue, msgid)
-    headerSetter({'MSGNEXT', queue, msgid})
+    headerSetter({'MSGNEXT', queue.objspec, queue.slot, msgid})
     return syslib:main('MSGNEXT')
 end
 
 function syslib.msgclear(queue)
-    headerSetter({'MSGCLEAR', queue})
+    headerSetter({'MSGCLEAR', queue.objspec, queue.slot})
     return syslib:main('MSGCLEAR')
 end
 
 function syslib.msgstats(queue)
-    headerSetter({'MSGSTATS', queue})
+    headerSetter({'MSGSTATS', queue.objspec, queue.slot})
     return syslib:main('MSGSTATS')
 end
 
+function syslib.opcdabrowse(datasource)
+    headerSetter({'OPCDABROWSE'}, datasource)
+    return syslib:main('OPCDABROWSE')
+end
+
 function syslib.pcall(func, param)
-    headerSetter({'PCALL', func, param})
+    headerSetter({'PCALL', function_names[func], param})
     return syslib:main('PCALL')
 end
 
 function syslib.peek(objspec, name)
-    headerSetter({'PEEK', objspec, name})
+    headerSetter({'PEEK', objspec.location or objspec, name})
     return syslib:main('PEEK')
 end
 
@@ -887,8 +960,8 @@ function syslib.regex(string, expression)
     return syslib:main('REGEX')
 end
 
-function syslib.scopedcall(settings, callback_func, args)
-    headerSetter({'SCOPEDCALL', settings, callback_func, args})
+function syslib.scopedcall(settings, callback_func, ...)
+    headerSetter({'SCOPEDCALL', settings, function_names[callback_func], ...})
     return syslib:main('SCOPEDCALL')
 end
 
@@ -913,7 +986,7 @@ function syslib.setfilemetadata(pathspec, name, metadata, mode)
 end
 
 function syslib.sethistoryex(datasource, tags, values, qualities, timestamps, mode)
-    headerSetter({'SETHISTEX', datasource, tags, values, qualities, timestamps, mode})
+    headerSetter({'SETHISTEX', syslib.selfpath, datasource, tags, values, qualities, timestamps, mode})
     return syslib:main('SETHISTEX')
 end
 
@@ -923,7 +996,7 @@ function syslib.setproductkey(product_key)
 end
 
 function syslib.setreferences(objspec, refs)
-    headerSetter({'SETREFERENCES', objspec, refs})
+    headerSetter({'SETREFERENCES', objspec.location or objspec, refs})
     return syslib:main('SETREFERENCES')
 end
 
@@ -938,12 +1011,12 @@ function syslib.sleep(milliseconds)
 end
 
 function syslib.tear(objspec, name)
-    headerSetter({'TEAR', objspec, name})
+    headerSetter({'TEAR', objspec.location or objspec, name})
     return syslib:main('TEAR')
 end
 
 function syslib.uabrowse(datasource, nodes_to_browse, defaults)
-    headerSetter({'UABROWSE', datasource, nodes_to_browse, defaults})
+    headerSetter({'UABROWSE', syslib.selfpath, datasource, JSON.encode(nodes_to_browse), JSON.encode(defaults)})
     return syslib:main('UABROWSE')
 end
 
@@ -963,7 +1036,7 @@ function syslib.uamethodcall(datasource, methods_to_call)
 end
 
 function syslib.uaread(datasource, nodes_to_read, max_age, return_ts)
-    headerSetter({'UAREAD', datasource, nodes_to_read, max_age, return_ts})
+    headerSetter({'UAREAD', syslib.selfpath, datasource, JSON.encode(nodes_to_read), max_age, return_ts})
     return syslib:main('UAREAD')
 end
 
@@ -991,13 +1064,37 @@ function syslib:main(farg)
     local client = https.NEW({})
     local res = client:POST(self.url, self.headers, body)
     if res.code == 200 or res.ok then
-        if farg ~= "GET" then
-            return res.data.data[1].v
-        else -- farg == "GET"
-            return res.data.data[1].v, res.data.data[1].q, res.data.data[1].t
+        local data = res.data.data[1].v
+        if farg == "GET" then
+            return data.v, data.q, data.t
+        elseif farg == "CURRENTTIMEZONE" then
+            return data.offset, data.name, data.dst
+        elseif farg == "GETHISTORYFRAME" then
+            return data.starttime, data.endtime
+        elseif farg == "GETSYSTEMDB" then
+            return data.cursor, data.err
+        elseif farg == "LISTPROPS" or farg == "GETFILE" then
+            return JSON.decode(data)
+        elseif farg == "MSGNEXT" then
+            return data.msgid, data.msg
+        elseif farg == "PCALL" then
+            return data.ok, data.err_or_msg, data.err_table
+        elseif farg == "PEEK" or farg == "TEAR" then
+            return data.values, data.qualities, data.timestamps, data.count
+        elseif farg == "SPLITPATH" then
+            return data.parent, data.child
+        else
+            return data
         end
     else
         return false
+    end
+end
+
+for name,value in pairs(syslib) do
+    if type(value) == "function" then
+        --function_names[value] = "syslib."..name
+        function_names[value] = name
     end
 end
 
