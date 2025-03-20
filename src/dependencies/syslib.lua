@@ -768,7 +768,7 @@ function syslib.getselectorentries(pathspec, options)
 end
 
 function syslib.getself()
-    if syslib.path == "" or nil then
+    if syslib.selfpath == "" then
         return "'selfpath' key value of syslib.config.lua is not a valid object."
     else
         return syslib.getobject(syslib.selfpath)
@@ -784,17 +784,28 @@ function syslib.getstoreid(store)
     return syslib:main('GETSTOREID')
 end
 
+local sysDB = {}
 function syslib.getsystemdb()
-    local sysdb = {}
-    function sysdb:query(sqlcmd)
-        headerSetter({'GETSYSTEMDB', sqlcmd})
-        return syslib:main('GETSYSTEMDB')
-    end
-    return sysdb
-    --headerSetter({'GETSYSTEMDB'})
-    --return syslib:main('GETSYSTEMDB')
-end
 
+    sysDB.__index = sysDB
+    local obj = {}
+    setmetatable(obj, sysDB)
+    function obj:query(sqlcmd)
+        headerSetter({'GETSYSTEMDB', sqlcmd})
+        local data, errmsg = syslib:main('GETSYSTEMDB')
+
+        local cursor = {}
+        function cursor:fetch(tb, modestring)
+            if tb == nil or type(tb) ~= "table" then tb = {} end
+            if modestring == nil or type(modestring) ~= "string" then modestring = "n" end
+            local row = data[1]
+            table.remove(data, 1)
+            return row
+        end
+        return cursor
+    end
+    return obj
+end
 
 function syslib.gettcpconnections(version)
     headerSetter({'GETTCPCONNECTIONS', version})

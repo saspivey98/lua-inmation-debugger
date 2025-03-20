@@ -3,7 +3,7 @@
 ## Requirements
 
 * Lua 5.3
-* Platform: Windows, macOS, Linux, Android, NetBSD, FreeBSD
+* Platform: Windows
 
 ## Feature
 
